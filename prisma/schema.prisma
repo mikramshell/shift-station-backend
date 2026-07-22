@@ -1,0 +1,96 @@
+// Shift Station — data model
+// Run: npx prisma migrate dev --name init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  MANAGER
+  EMPLOYEE
+}
+
+enum TimeOffStatus {
+  PENDING
+  APPROVED
+  DENIED
+}
+
+model Location {
+  id        String     @id @default(cuid())
+  name      String     @unique // "Highland Shell", "Del Rosa Shell"
+  employees Employee[] @relation("EmployeeLocations")
+  shifts    Shift[]
+  createdAt DateTime   @default(now())
+}
+
+model Employee {
+  id            String         @id @default(cuid())
+  name          String
+  phone         String         @unique // E.164 format, e.g. +19095551234
+  email         String?        @unique
+  passwordHash  String
+  role          Role           @default(EMPLOYEE)
+  locations     Location[]     @relation("EmployeeLocations")
+  shifts        Shift[]
+  timeOffs      TimeOffRequest[]
+  notifications Notification[]
+  pushTokens    PushToken[]
+  active        Boolean        @default(true)
+  createdAt     DateTime       @default(now())
+}
+
+// One row per employee per day. Simple and easy to query/edit per week.
+model Shift {
+  id         String   @id @default(cuid())
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  employeeId String
+  location   Location @relation(fields: [locationId], references: [id])
+  locationId String
+  date       DateTime // stored as midnight UTC for that calendar day
+  label      String   // "6 AM - 2 PM", "X", "at Del Rosa", free text like today's sheet
+  updatedAt  DateTime @updatedAt
+
+  @@unique([employeeId, date]) // one shift entry per employee per day
+  @@index([locationId, date])
+}
+
+model TimeOffRequest {
+  id         String        @id @default(cuid())
+  employee   Employee      @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  employeeId String
+  startDate  DateTime
+  endDate    DateTime
+  reason     String?
+  status     TimeOffStatus @default(PENDING)
+  createdAt  DateTime      @default(now())
+  resolvedAt DateTime?
+  resolvedBy String?       // manager employee id
+}
+
+model Notification {
+  id         String   @id @default(cuid())
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  employeeId String
+  message    String
+  channels   String[] // e.g. ["sms","email","push"]
+  smsStatus  String?  // "sent" | "failed" | "skipped"
+  emailStatus String?
+  pushStatus String?
+  createdAt  DateTime @default(now())
+  readAt     DateTime?
+}
+
+model PushToken {
+  id         String   @id @default(cuid())
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  employeeId String
+  token      String   @unique // FCM/APNs device token
+  platform   String   // "ios" | "android"
+  createdAt  DateTime @default(now())
+}
